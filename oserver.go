@@ -1,7 +1,8 @@
-package main
+package oserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -10,17 +11,15 @@ import (
 	"time"
 )
 
-var BLOCKSIZE = 5
+type Transaction struct {
+	Message  string `json:"message"`
+	GasPrice int64  `json:"gasprice"`
+}
 
 type memPoolDB struct {
 	sync.Mutex
 	mempool   []*Transaction
 	blockSize int
-}
-
-type Transaction struct {
-	Message  string `json:"message"`
-	GasPrice int64  `json:"gasprice"`
 }
 
 func newMemPoolDB(blockSize int) *memPoolDB {
@@ -69,14 +68,8 @@ func (mpDB *memPoolDB) makeBlock() (block []*Transaction) {
 	default:
 		blockLength = mpDB.blockSize
 	}
-	//dprint("mempool")
-	//dprint(BlockToString(mpDB.mempool))
 	blk := mpDB.mempool[0:blockLength]
-	//dprint("block")
-	//dprint(BlockToString(blk))
 	mpDB.mempool = mpDB.mempool[blockLength:memPoolLength]
-	//dprint("new mempool")
-	//dprint(BlockToString(mpDB.mempool))
 	return blk
 }
 
@@ -92,24 +85,15 @@ func (mpDB *memPoolDB) BlockServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mpDB.insert(&txn)
-	log.Printf("inserted(%+v)\n", txn)
-	// ctx := r.Context()
-	// select {
-	// case <-time.After(3 * time.Second):
-	//
-	// case <-ctx.Done():
-	// 	err := ctx.Err()
-	// 	fmt.Println("server:", err)
-	// 	internalError := http.StatusInternalServerError
-	// 	http.Error(w, err.Error(), internalError)
-	// }
+	//log.Printf("inserted(%+v)\n", txn)
 }
 
 func MessageToTransaction(message []byte) (txn Transaction, err error) {
 	err = json.Unmarshal(message, &txn)
-	// if err != nil {
-	// 	log.Printf("ERROR MessageToTransaction %v", err)
-	// }
+	if txn.Message == "" && txn.GasPrice == 0 {
+		err = fmt.Errorf("ERROR MessageToTransaction: not a transaction (%s)", string(message))
+		//log.Printf(err.Error())
+	}
 	return txn, err
 }
 
@@ -121,32 +105,26 @@ func TransactionToMessage(txn Transaction) (message []byte, err error) {
 	return message, err
 }
 
-func Init() {
+func Init(blockSize int, blockMilliseconds int64, port string) {
 
-	mpDB := newMemPoolDB(BLOCKSIZE)
+	mpDB := newMemPoolDB(blockSize)
 	go func() {
-		log.Printf("server coming up\n")
 		http.HandleFunc("/", mpDB.BlockServer)
-		http.ListenAndServe(":8080", nil)
+		http.ListenAndServe(port, nil)
 	}()
 
 	go func() {
-		log.Printf("making block goroutine spawned\n")
 		for {
-			//time.Sleep(3 * time.Second)
-			time.Sleep(time.Millisecond * 100)
+			time.Sleep(time.Millisecond * time.Duration(blockMilliseconds))
 			block := mpDB.makeBlock()
 			blockString := BlockToString(block)
-			log.Printf("block made(%v)", blockString)
+			log.Printf("block made(\n%v)", blockString)
 		}
 	}()
 
 }
 
-func main() {
-	Init()
-}
-
+// BlockToString is a helper print function
 func BlockToString(block []*Transaction) (str string) {
 	str = ""
 	for _, txn := range block {
@@ -158,11 +136,3 @@ func BlockToString(block []*Transaction) (str string) {
 	}
 	return str
 }
-
-// func dprint(in string, args ...interface{}) {
-// 	if in == "\n" {
-// 		fmt.Println()
-// 	} else {
-// 		fmt.Printf("[debug] "+in+"\n", args...)
-// 	}
-// }

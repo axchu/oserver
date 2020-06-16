@@ -1,9 +1,9 @@
-// handlers_test.go
-package main
+package oserver
 
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"testing"
 	"time"
@@ -29,7 +29,6 @@ do
 done
 */
 
-//{"message": "xyz","gasprice": 5000}
 func TestInsert(t *testing.T) {
 	mpDB := newMemPoolDB(TEST_BLOCKSIZE)
 	for _, input := range TEST_INPUTS {
@@ -88,7 +87,7 @@ func TestMakeBlock(t *testing.T) {
 		mpDB.insert(&txn)
 	}
 	blk := mpDB.makeBlock()
-	//tprint(BlockToString(blk))
+
 	// check
 	if len(blk) != TEST_BLOCKSIZE {
 		t.Fatalf("MakeBlock failed, blocksize (%v) is not the right size (%v)", len(blk), TEST_BLOCKSIZE)
@@ -129,37 +128,46 @@ func TestMakeBlock(t *testing.T) {
 
 func TestBlockServer(t *testing.T) {
 
-	Init()
+	Init(TEST_BLOCKSIZE, TEST_BLOCKMILLISECONDS, TEST_PORT)
 
+	seed := rand.NewSource(time.Now().UnixNano())
+	rd := rand.New(seed)
+	client := &http.Client{}
+	// todo: randomized input messages + gasprices
 	for _, input := range TEST_INPUTS {
-		time.Sleep(time.Millisecond * 50)
-		req, err := http.NewRequest("POST", "http://localhost:8080", bytes.NewBuffer([]byte(input)))
+		req, err := http.NewRequest("POST", TEST_URL, bytes.NewBuffer([]byte(input)))
 		if err != nil {
 			t.Fatalf("Error reading request. %v", err)
 		}
-
-		// Set headers
 		req.Header.Set("Content-Type", "application/json")
-
-		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			panic(err)
+			t.Fatal(err)
 		}
 		defer resp.Body.Close()
-		// Check the status code is what we expect.
-		//if status := rr.Code; status != http.StatusOK {
-		//	t.Errorf("handler returned wrong status code: got %v want %v",
-		//		status, http.StatusOK)
-		///}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatal("status not ok")
+		}
 		tprint("sent req(%v)", input)
+		time.Sleep(time.Millisecond * time.Duration(rd.Intn(100)))
 	}
-	// Check the response body is what we expect.
-	// expected := `{"alive": true}`
-	// if rr.Body.String() != expected {
-	// 	t.Errorf("handler returned unexpected body: got %v want %v",
-	// 		rr.Body.String(), expected)
-	// }
+
+	// try a msg that is not a txn
+	badmsg := "{\"something\":\"xyz\",\"someotherthing\":5000}"
+	tprint("badmsg %s", badmsg)
+	req, err := http.NewRequest("POST", TEST_URL, bytes.NewBuffer([]byte(badmsg)))
+	if err != nil {
+		t.Fatalf("Error reading request. %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("badmsg should not be ok")
+	}
 
 }
 
@@ -177,22 +185,25 @@ var TEST_INPUTS = []string{
 	10: "{\"message\":\"whodis\",\"gasprice\":333}",
 }
 
-var TEST_BLOCKSIZE = 5
+var TEST_BLOCKSIZE = 3
+var TEST_BLOCKMILLISECONDS = int64(200)
+var TEST_PORT = ":8080"
+var TEST_URL = "http://localhost:8080"
 var TEST_BLOCK = []string{
 	0: "{\"message\":\"alice 234\",\"gasprice\":100000}",
 	1: "{\"message\":\"abc\",\"gasprice\":5050}",
 	2: "{\"message\":\"222\",\"gasprice\":5001}",
-	3: "{\"message\":\"xyz\",\"gasprice\":5000}",
-	4: "{\"message\":\"myTransaction\",\"gasprice\":800}",
 }
 
 var TEST_RESTOFMEMPOOL = []string{
-	0: "{\"message\":\"whodis\",\"gasprice\":333}",
-	1: "{\"message\":\"hello\",\"gasprice\":40}",
-	2: "{\"message\":\"avery\",\"gasprice\":22}",
-	3: "{\"message\":\"aaaaaaa\",\"gasprice\":16}",
-	4: "{\"message\":\"123 bob\",\"gasprice\":1}",
-	5: "{\"message\":\"this gas price is the best\",\"gasprice\":0}",
+	0: "{\"message\":\"xyz\",\"gasprice\":5000}",
+	1: "{\"message\":\"myTransaction\",\"gasprice\":800}",
+	2: "{\"message\":\"whodis\",\"gasprice\":333}",
+	3: "{\"message\":\"hello\",\"gasprice\":40}",
+	4: "{\"message\":\"avery\",\"gasprice\":22}",
+	5: "{\"message\":\"aaaaaaa\",\"gasprice\":16}",
+	6: "{\"message\":\"123 bob\",\"gasprice\":1}",
+	7: "{\"message\":\"this gas price is the best\",\"gasprice\":0}",
 }
 
 var TEST_SORTEDINPUTS = []string{
