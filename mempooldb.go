@@ -40,11 +40,11 @@ func (mpDB *memPoolDB) sortDescending() (err error) {
 
 func (mpDB *memPoolDB) makeBlock(blockSize int) (block []*Transaction) {
 	mpDB.sortDescending()
+	blockLength := 0
 
 	mpDB.Lock()
 	defer mpDB.Unlock()
 
-	blockLength := 0
 	memPoolLength := len(mpDB.mempool)
 	switch {
 	case memPoolLength == 0:

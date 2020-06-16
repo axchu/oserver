@@ -14,7 +14,6 @@ func (txn *Transaction) MessageToTransaction(message []byte) (err error) {
 	err = json.Unmarshal(message, &txn)
 	if txn.Message == "" && txn.GasPrice == 0 {
 		err = fmt.Errorf("ERROR MessageToTransaction: not a transaction (%s)", string(message))
-		//log.Printf(err.Error())
 	}
 	return err
 }
