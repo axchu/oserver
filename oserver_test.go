@@ -30,11 +30,12 @@ done
 */
 
 func TestInsert(t *testing.T) {
-	mpDB := newMemPoolDB(TEST_BLOCKSIZE)
+	mpDB := newMemPoolDB()
 	for _, input := range TEST_INPUTS {
-		txn, err := MessageToTransaction([]byte(input))
+		txn := new(Transaction)
+		err := txn.MessageToTransaction([]byte(input))
 		require.NoError(t, err)
-		mpDB.insert(&txn)
+		mpDB.insert(txn)
 	}
 
 	// check
@@ -43,7 +44,7 @@ func TestInsert(t *testing.T) {
 	}
 	matched := 0
 	for _, actual := range mpDB.mempool {
-		actualmsg, err := TransactionToMessage(*actual)
+		actualmsg, err := actual.TransactionToMessage()
 		require.NoError(t, err)
 		//tprint("actualmsg(%s)", string(actualmsg))
 		for _, expected := range TEST_INPUTS {
@@ -60,18 +61,18 @@ func TestInsert(t *testing.T) {
 }
 
 func TestSortDescending(t *testing.T) {
-	mpDB := newMemPoolDB(TEST_BLOCKSIZE)
+	mpDB := newMemPoolDB()
 	for _, input := range TEST_INPUTS {
-		txn, err := MessageToTransaction([]byte(input))
-		require.NoError(t, err)
-		mpDB.insert(&txn)
+		txn := new(Transaction)
+		require.NoError(t, txn.MessageToTransaction([]byte(input)))
+		mpDB.insert(txn)
 	}
 	require.NoError(t, mpDB.sortDescending())
 
 	// check
 	for i, expected := range TEST_SORTEDINPUTS {
 		actual := mpDB.mempool[i]
-		actualmsg, err := TransactionToMessage(*actual)
+		actualmsg, err := actual.TransactionToMessage()
 		require.NoError(t, err)
 		if expected != string(actualmsg) {
 			t.Fatalf("SortDescending Failed expected(%v) actual(%v)", expected, string(actualmsg))
@@ -80,13 +81,13 @@ func TestSortDescending(t *testing.T) {
 }
 
 func TestMakeBlock(t *testing.T) {
-	mpDB := newMemPoolDB(TEST_BLOCKSIZE)
+	mpDB := newMemPoolDB()
 	for _, input := range TEST_INPUTS {
-		txn, err := MessageToTransaction([]byte(input))
-		require.NoError(t, err)
-		mpDB.insert(&txn)
+		txn := new(Transaction)
+		require.NoError(t, txn.MessageToTransaction([]byte(input)))
+		mpDB.insert(txn)
 	}
-	blk := mpDB.makeBlock()
+	blk := mpDB.makeBlock(TEST_BLOCKSIZE)
 
 	// check
 	if len(blk) != TEST_BLOCKSIZE {
@@ -98,7 +99,7 @@ func TestMakeBlock(t *testing.T) {
 
 	for i, expected := range TEST_BLOCK {
 		actual := blk[i]
-		actualmsg, err := TransactionToMessage(*actual)
+		actualmsg, err := actual.TransactionToMessage()
 		require.NoError(t, err)
 		if expected != string(actualmsg) {
 			t.Fatalf("MakeBlock Failed expected(%v) actual(%v)", expected, string(actualmsg))
@@ -106,29 +107,33 @@ func TestMakeBlock(t *testing.T) {
 	}
 	for i, expected := range TEST_RESTOFMEMPOOL {
 		actual := mpDB.mempool[i]
-		actualmsg, err := TransactionToMessage(*actual)
+		actualmsg, err := actual.TransactionToMessage()
 		require.NoError(t, err)
 		if expected != string(actualmsg) {
 			t.Fatalf("MakeBlock mempool Failed expected(%v) actual(%v)", expected, string(actualmsg))
 		}
 	}
 
-	// check smaller block
-	mpDB.blockSize = 10
-	smallBlock := mpDB.makeBlock()
+	// check smaller block than size allowed
+	blockSizeAllowed := 10
+	smallBlock := mpDB.makeBlock(blockSizeAllowed)
 	assert.Equal(t, len(smallBlock), len(TEST_RESTOFMEMPOOL))
 	assert.Equal(t, 0, len(mpDB.mempool))
 
 	// check empty mempool
 	mpDB.mempool = make([]*Transaction, 0)
-	emptyBlock := mpDB.makeBlock()
+	emptyBlock := mpDB.makeBlock(TEST_BLOCKSIZE)
 	assert.Equal(t, 0, len(emptyBlock))
 
 }
 
 func TestBlockServer(t *testing.T) {
 
-	Init(TEST_BLOCKSIZE, TEST_BLOCKMILLISECONDS, TEST_PORT)
+	oserver := newOServer(TEST_BLOCKSIZE, TEST_BLOCKMILLISECONDS, TEST_PORT)
+	running := oserver.Run()
+	if !running {
+		t.Fatal("bad parameters")
+	}
 
 	seed := rand.NewSource(time.Now().UnixNano())
 	rd := rand.New(seed)
@@ -171,6 +176,24 @@ func TestBlockServer(t *testing.T) {
 
 }
 
+func TestIsValid(t *testing.T) {
+	oserver := newOServer(-2, TEST_BLOCKMILLISECONDS, TEST_PORT)
+	valid := oserver.Run()
+	if valid {
+		t.Fatal("not caught: bad blocksize")
+	}
+	oserver = newOServer(TEST_BLOCKSIZE, -100, TEST_PORT)
+	valid = oserver.Run()
+	if valid {
+		t.Fatal("not caught: bad blockmilliseconds")
+	}
+	oserver = newOServer(TEST_BLOCKSIZE, TEST_BLOCKMILLISECONDS, -1000)
+	valid = oserver.Run()
+	if valid {
+		t.Fatal("not caught: bad port")
+	}
+}
+
 var TEST_INPUTS = []string{
 	0:  "{\"message\":\"xyz\",\"gasprice\":5000}",
 	1:  "{\"message\":\"hello\",\"gasprice\":40}",
@@ -187,7 +210,7 @@ var TEST_INPUTS = []string{
 
 var TEST_BLOCKSIZE = 3
 var TEST_BLOCKMILLISECONDS = int64(200)
-var TEST_PORT = ":8080"
+var TEST_PORT = 8080
 var TEST_URL = "http://localhost:8080"
 var TEST_BLOCK = []string{
 	0: "{\"message\":\"alice 234\",\"gasprice\":100000}",
